@@ -1,3 +1,4 @@
+# model.py
 import torch
 import torch.nn as nn
 
@@ -15,7 +16,8 @@ class CharTransformerModel(nn.Module):
             num_encoder_layers=num_layers,
             num_decoder_layers=num_layers,
             dim_feedforward=hidden_dim,
-            dropout=dropout
+            dropout=dropout,
+            batch_first=True  # Устанавливаем batch_first=True
         )
 
         self.fc_out = nn.Linear(embed_size, vocab_size)
@@ -28,14 +30,17 @@ class CharTransformerModel(nn.Module):
         return self.src_mask
 
     def forward(self, src):
-        # src shape: (seq_length, batch_size)
-        seq_length = src.size(0)
+        """
+        src shape: (batch_size, seq_length)
+        """
+        seq_length = src.size(1)
         embed = self.embedding(src) * torch.sqrt(torch.tensor(self.embed_size, dtype=torch.float32, device=src.device))
-        embed = self.positional_encoding(embed)
+        embed = self.positional_encoding(embed)  # Shape: (batch_size, seq_length, embed_size)
 
         mask = self.generate_square_subsequent_mask(seq_length)
+        # Transformer expects src and tgt; для генерации используем src=embed и tgt=embed
         output = self.transformer(src=embed, tgt=embed, src_mask=mask, tgt_mask=mask)
-        logits = self.fc_out(output)
+        logits = self.fc_out(output)  # Shape: (batch_size, seq_length, vocab_size)
         return logits
 
 
@@ -53,10 +58,10 @@ class PositionalEncoding(nn.Module):
             pe[:, 1::2] = torch.cos(position * div_term[:-1])
         else:
             pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(1)  # Shape: (max_len, 1, embed_size)
+        pe = pe.unsqueeze(0)  # Shape: (1, max_len, embed_size)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        # x shape: (seq_length, batch_size, embed_size)
-        x = x + self.pe[:x.size(0)]
+        # x shape: (batch_size, seq_length, embed_size)
+        x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
